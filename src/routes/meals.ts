@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request } from 'express';
 import multer from 'multer';
 import { authenticateToken, AuthRequest } from '../middleware/authMiddleware';
 import { createMeal, listMealsForDate, getMeal, updateMeal, analyzeMeal, confirmMeal, uploadMealImage } from '../server/fitcal/services/mealService';
@@ -17,6 +17,7 @@ export const createMealsRouter = () => {
   router.post('/', authenticateToken, upload.single('image'), async (req, res) => {
     try {
       const authReq = req as AuthRequest;
+      const fileRequest = req as Request & { file?: Express.Multer.File };
       if (!authReq.user) {
         res.status(401).json({ error: 'access_denied', message: 'Authentication required' });
         return;
@@ -35,8 +36,13 @@ export const createMealsRouter = () => {
         mealTime: meal_time
       });
 
-      if (req.file) {
-        const uploadedUrl = await uploadMealImage(authReq.user.id, meal.id, req.file.buffer, req.file.mimetype);
+      if (fileRequest.file) {
+        const uploadedUrl = await uploadMealImage(
+          authReq.user.id,
+          meal.id,
+          fileRequest.file.buffer,
+          fileRequest.file.mimetype
+        );
         await updateMeal(meal.id, { image_url: uploadedUrl });
         meal.image_url = uploadedUrl;
       }

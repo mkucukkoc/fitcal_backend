@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node';
+import type { ErrorEvent, EventHint, Scope } from '@sentry/node';
 import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import { httpIntegration } from '@sentry/node';
 import { expressIntegration } from '@sentry/node';
@@ -18,7 +19,7 @@ export const initSentry = () => {
       nodeProfilingIntegration(),
     ],
     // Performance Monitoring
-    beforeSend(event) {
+    beforeSend(event: ErrorEvent, _hint?: EventHint) {
       // Filter out sensitive data
       if (event.request?.cookies) {
         delete event.request.cookies;
@@ -32,7 +33,7 @@ export const initSentry = () => {
 };
 
 export const captureException = (error: Error, context?: any) => {
-  Sentry.withScope((scope) => {
+  Sentry.withScope((scope: Scope) => {
     if (context) {
       scope.setContext('additional_info', context);
     }
@@ -41,7 +42,7 @@ export const captureException = (error: Error, context?: any) => {
 };
 
 export const captureMessage = (message: string, level: 'info' | 'warning' | 'error' = 'info', context?: any) => {
-  Sentry.withScope((scope) => {
+  Sentry.withScope((scope: Scope) => {
     if (context) {
       scope.setContext('additional_info', context);
     }
@@ -94,7 +95,7 @@ export const ErrorTypes = {
 } as const;
 
 export const captureError = (error: Error, type: string, context?: any) => {
-  Sentry.withScope((scope) => {
+  Sentry.withScope((scope: Scope) => {
     scope.setTag('error_type', type);
     if (context) {
       scope.setContext('error_context', context);

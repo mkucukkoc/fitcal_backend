@@ -1,4 +1,4 @@
-import { Server as SocketIOServer } from 'socket.io';
+import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { logger } from '../utils/logger';
 import { TokenService } from './tokenService';
@@ -37,7 +37,7 @@ export class WebSocketService {
   constructor(httpServer: HTTPServer) {
     this.io = new SocketIOServer(httpServer, {
       cors: {
-        origin: (origin, callback) => {
+        origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
           if (isWebSocketOriginAllowed(origin)) {
             callback(null, true);
             return;
@@ -60,7 +60,7 @@ export class WebSocketService {
 
   private setupMiddleware() {
     // Authentication middleware
-    this.io.use(async (socket, next) => {
+    this.io.use(async (socket: Socket, next: (err?: Error) => void) => {
       try {
         const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
         
@@ -117,7 +117,7 @@ export class WebSocketService {
   }
 
   private setupEventHandlers() {
-    this.io.on('connection', (socket) => {
+    this.io.on('connection', (socket: Socket) => {
       const user = socket.data.user;
       const deviceId = socket.handshake.auth.deviceId || 'unknown';
 
@@ -145,7 +145,7 @@ export class WebSocketService {
       this.setupPresenceEvents(socket);
 
       // Handle disconnection
-      socket.on('disconnect', (reason) => {
+      socket.on('disconnect', (reason: string) => {
         logger.info({ userId: user.id, socketId: socket.id, reason }, 'User disconnected from WebSocket');
         
         this.connectedUsers.delete(socket.id);
@@ -159,13 +159,13 @@ export class WebSocketService {
       });
 
       // Handle errors
-      socket.on('error', (error) => {
+      socket.on('error', (error: Error) => {
         logger.error({ userId: user.id, error }, 'WebSocket error');
       });
     });
   }
 
-  private setupChatEvents(socket: any) {
+  private setupChatEvents(socket: Socket) {
     // Join chat room
     socket.on('chat:join', async (data: { chatId: string }) => {
       try {
@@ -249,7 +249,7 @@ export class WebSocketService {
     });
   }
 
-  private setupTypingEvents(socket: any) {
+  private setupTypingEvents(socket: Socket) {
     socket.on('typing:start', (data: { chatId: string }) => {
       const { chatId } = data;
       const user = socket.data.user;
@@ -279,7 +279,7 @@ export class WebSocketService {
     });
   }
 
-  private setupPresenceEvents(socket: any) {
+  private setupPresenceEvents(socket: Socket) {
     // Send online status
     socket.on('presence:online', () => {
       const user = socket.data.user;

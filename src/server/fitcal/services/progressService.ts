@@ -1,4 +1,5 @@
 import { db } from '../../../firebase';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { formatDateInTimeZone, getUtcRangeForDate } from '../utils/timezone';
 import { calculateDailyTargets, DailyTargets, UserInfo } from './userInfoService';
 import { logger } from '../../../utils/logger';
@@ -29,7 +30,8 @@ export const getOrCreateDailyStats = async (user: UserInfo, date: string) => {
 
   if (!snapshot.empty) {
     const doc = snapshot.docs[0];
-    return { id: doc.id, ...(doc.data() as DailyStats) };
+    const data = doc.data() as DailyStats;
+    return { ...data, id: doc.id };
   }
 
   const targets: DailyTargets = calculateDailyTargets(user);
@@ -89,7 +91,7 @@ export const getWeeklyStats = async (user: UserInfo, weekStart: string) => {
     .where('date', '<=', formatDateInTimeZone(new Date(end.getTime() - 1000), user.timezone || 'UTC'))
     .get();
 
-  const stats = snapshot.docs.map(doc => doc.data() as DailyStats);
+  const stats = snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => doc.data() as DailyStats);
   const totalMealsSnapshot = await db
     .collection('meals')
     .where('user_id', '==', user.id)
@@ -98,7 +100,7 @@ export const getWeeklyStats = async (user: UserInfo, weekStart: string) => {
     .get();
 
   const totals = stats.reduce(
-    (acc, day) => {
+    (acc: { calories: number; protein: number; carbs: number; fat: number }, day: DailyStats) => {
       acc.calories += day.calories_consumed || 0;
       acc.protein += day.protein_consumed_g || 0;
       acc.carbs += day.carbs_consumed_g || 0;
@@ -116,6 +118,6 @@ export const getWeeklyStats = async (user: UserInfo, weekStart: string) => {
     avg_carbs_g: Math.round(totals.carbs / daysCount),
     avg_fat_g: Math.round(totals.fat / daysCount),
     total_meals: totalMealsSnapshot.size,
-    streak_days: stats.filter(day => day.calories_consumed > 0).length
+    streak_days: stats.filter((day: DailyStats) => day.calories_consumed > 0).length
   };
 };

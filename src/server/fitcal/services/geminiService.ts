@@ -10,6 +10,16 @@ const cleanJsonResponse = (text: string) => {
   return text.replace(/```json|```/g, '').trim();
 };
 
+type GeminiResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+};
+
 export const analyzeMealImage = async (imageBase64: string, mimeType: string, language: string) => {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -34,7 +44,7 @@ export const analyzeMealImage = async (imageBase64: string, mimeType: string, la
     ]
   };
 
-  const response = await axios.post(
+  const response = await axios.post<GeminiResponse>(
     `${GEMINI_BASE_URL}/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
     requestBody
   );
@@ -68,7 +78,7 @@ export const generateCoachResponse = async (context: string, history: Array<{ ro
     contents
   };
 
-  const response = await axios.post(
+  const response = await axios.post<GeminiResponse>(
     `${GEMINI_BASE_URL}/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
     requestBody
   );
@@ -102,7 +112,7 @@ export const generateSummary = async (summaryInput: string) => {
   };
 
   try {
-    const response = await axios.post(
+    const response = await axios.post<GeminiResponse>(
       `${GEMINI_BASE_URL}/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       requestBody
     );

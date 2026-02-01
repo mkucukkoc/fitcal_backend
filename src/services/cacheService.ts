@@ -33,7 +33,7 @@ class CacheService {
       logger.info('Redis connected successfully');
     });
 
-    this.redis.on('error', (error) => {
+    this.redis.on('error', (error: Error) => {
       this.isConnected = false;
       logger.error('Redis connection error:', error);
     });
@@ -128,7 +128,7 @@ class CacheService {
       }
 
       const values = await this.redis.mget(...keys);
-      return values.map(value => value ? JSON.parse(value) : null);
+      return values.map((value: string | null) => value ? JSON.parse(value) : null);
     } catch (error) {
       logger.error('Cache mget error:', { keys, error });
       return keys.map(() => null);

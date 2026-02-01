@@ -10,11 +10,12 @@ export const validate = (schema: z.ZodSchema) => {
       schema.parse(req.body);
       next();
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      const zodError = error instanceof z.ZodError ? error : null;
+      if (zodError) {
         res.status(400).json({
           error: 'validation_error',
           message: 'Invalid request data',
-          details: error.issues.map((err: any) => ({
+          details: zodError.issues.map((err: z.ZodIssue) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -137,10 +138,10 @@ export const deleteAccountSchemas = {
   initiate: z.object({
     deleteReason: deleteReasonSchema.optional(),
     deleteReasonNote: z.string().max(1000, 'Açıklama en fazla 1000 karakter olabilir').optional(),
-    confirmPermanentDeletion: z.boolean().refine(value => value === true, {
+    confirmPermanentDeletion: z.boolean().refine((value: boolean) => value === true, {
       message: 'Kalıcı silme onayı verilmelidir',
     }),
-    gdprAcknowledged: z.boolean().refine(value => value === true, {
+    gdprAcknowledged: z.boolean().refine((value: boolean) => value === true, {
       message: 'GDPR/KVKK bilgilendirmesi onaylanmalıdır',
     }),
     skipDataExport: z.boolean().optional(),
@@ -190,11 +191,12 @@ export const validateQuery = (schema: z.ZodSchema) => {
       schema.parse(req.query);
       next();
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      const zodError = error instanceof z.ZodError ? error : null;
+      if (zodError) {
         res.status(400).json({
           error: 'validation_error',
           message: 'Invalid query parameters',
-          details: error.issues.map((err: any) => ({
+          details: zodError.issues.map((err: z.ZodIssue) => ({
             field: err.path.join('.'),
             message: err.message,
           })),
@@ -219,11 +221,12 @@ export const validateParams = (schema: z.ZodSchema) => {
       schema.parse(req.params);
       next();
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      const zodError = error instanceof z.ZodError ? error : null;
+      if (zodError) {
         res.status(400).json({
           error: 'validation_error',
           message: 'Invalid URL parameters',
-          details: error.issues.map((err: any) => ({
+          details: zodError.issues.map((err: z.ZodIssue) => ({
             field: err.path.join('.'),
             message: err.message,
           })),

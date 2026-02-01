@@ -1,4 +1,5 @@
 import { db, storage } from '../../../firebase';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../../../utils/logger';
 import { analyzeMealImage } from './geminiService';
@@ -57,7 +58,9 @@ export const uploadMealImage = async (
     if (typeof file.makePublic === 'function') {
       await file.makePublic();
     }
-    const bucketName = bucket.name || process.env.FIREBASE_STORAGE_BUCKET || 'mock';
+    const bucketName = 'name' in bucket && typeof (bucket as any).name === 'string'
+      ? (bucket as any).name
+      : process.env.FIREBASE_STORAGE_BUCKET || 'mock';
     return `https://storage.googleapis.com/${bucketName}/${path}`;
   }
 
@@ -98,7 +101,7 @@ export const listMealsForDate = async (userId: string, start: Date, end: Date) =
     .orderBy('meal_time', 'desc')
     .get();
 
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  return snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => ({ id: doc.id, ...doc.data() }));
 };
 
 export const getMeal = async (mealId: string) => {
@@ -108,13 +111,13 @@ export const getMeal = async (mealId: string) => {
   }
   const mealData = mealDoc.data();
   const itemsSnapshot = await db.collection('meal_items').where('meal_id', '==', mealId).get();
-  const items = itemsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const items = itemsSnapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => ({ id: doc.id, ...doc.data() }));
   const analysisSnapshot = await db
     .collection('analysis_results')
     .where('meal_id', '==', mealId)
     .orderBy('created_at', 'desc')
     .get();
-  const analysis = analysisSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const analysis = analysisSnapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => ({ id: doc.id, ...doc.data() }));
 
   return {
     id: mealDoc.id,
@@ -141,7 +144,7 @@ export const analyzeMeal = async (mealId: string, model: string, language: strin
   }
 
   logger.info({ mealId, model }, 'Starting meal image analysis');
-  const imageResponse = await axios.get(mealData.image_url, { responseType: 'arraybuffer' });
+  const imageResponse = await axios.get<ArrayBuffer>(mealData.image_url, { responseType: 'arraybuffer' });
   if (imageResponse.status >= 400) {
     throw new Error('Failed to download meal image');
   }

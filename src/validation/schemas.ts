@@ -229,7 +229,7 @@ export const validateRequest = (schema: Joi.ObjectSchema, property: 'body' | 'qu
     });
 
     if (error) {
-      const errorDetails = error.details.map(detail => ({
+      const errorDetails = error.details.map((detail: Joi.ValidationErrorItem) => ({
         field: detail.path.join('.'),
         message: detail.message,
         value: detail.context?.value,
@@ -277,7 +277,7 @@ export const validatePassword = (password: string): { valid: boolean; errors: st
   if (error) {
     return {
       valid: false,
-      errors: error.details.map(detail => detail.message),
+      errors: error.details.map((detail: Joi.ValidationErrorItem) => detail.message),
     };
   }
   

@@ -1,4 +1,5 @@
 import { db } from '../../../firebase';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { v4 as uuidv4 } from 'uuid';
 import { formatDateInTimeZone } from '../utils/timezone';
 import { generateCoachResponse, generateSummary } from './geminiService';
@@ -23,7 +24,7 @@ export const listChatSessions = async (userId: string) => {
     .where('user_id', '==', userId)
     .orderBy('updated_at', 'desc')
     .get();
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  return snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => ({ id: doc.id, ...doc.data() }));
 };
 
 export const listChatMessages = async (sessionId: string) => {
@@ -32,7 +33,7 @@ export const listChatMessages = async (sessionId: string) => {
     .where('session_id', '==', sessionId)
     .orderBy('created_at', 'asc')
     .get();
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  return snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => ({ id: doc.id, ...doc.data() }));
 };
 
 const getChatMemorySummary = async (userId: string) => {
@@ -60,9 +61,9 @@ const maybeUpdateSummary = async (userId: string, sessionId: string) => {
     return;
   }
 
-  const messages = messagesSnapshot.docs.map(doc => doc.data() as any).reverse();
+  const messages = messagesSnapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => doc.data() as any).reverse();
   const summaryInput = messages
-    .map(msg => `${msg.role === 'assistant' ? 'Koç' : 'Kullanıcı'}: ${msg.content}`)
+    .map((msg: { role?: string; content?: string }) => `${msg.role === 'assistant' ? 'Koç' : 'Kullanıcı'}: ${msg.content ?? ''}`)
     .join('\n');
 
   const summaryText = await generateSummary(summaryInput);
@@ -99,13 +100,13 @@ const getRecentStatsSummary = async (user: UserInfo) => {
     .where('date', '<=', endDate)
     .get();
 
-  const stats = snapshot.docs.map(doc => doc.data() as any);
+  const stats = snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => doc.data() as any);
   if (stats.length === 0) {
     return 'Son 7 gün verisi bulunamadı.';
   }
 
   const totals = stats.reduce(
-    (acc, day) => {
+    (acc: { calories: number; protein: number; carbs: number; fat: number; water: number }, day: any) => {
       acc.calories += day.calories_consumed || 0;
       acc.protein += day.protein_consumed_g || 0;
       acc.carbs += day.carbs_consumed_g || 0;
@@ -128,7 +129,7 @@ const buildContext = async (user: UserInfo, stats: any, memorySummary: any, rece
   const dailyStats = `Bugün (${today}) Alınan: ${stats?.calories_consumed || 0} kcal (Hedef ${targets.calories_goal} kcal), Protein: ${stats?.protein_consumed_g || 0}g, Su: ${stats?.water_ml || 0}ml, Adım: ${stats?.steps || 0}`;
   const memory = `Hafıza Özeti: ${memorySummary?.summary || 'Yeni kullanıcı, sıcak karşıla.'}`;
   const history = recentMessages
-    .map(msg => `${msg.role === 'assistant' ? 'Koç' : 'Kullanıcı'}: ${msg.content}`)
+    .map((msg: { role?: string; content?: string }) => `${msg.role === 'assistant' ? 'Koç' : 'Kullanıcı'}: ${msg.content ?? ''}`)
     .join('\n');
 
   return `${userContext}\n---\n${dailyStats}\n---\n${weeklySummary}\n---\n${memory}\n---\nSon Konuşmalar:\n${history}\n---\nYeni Mesaj: ${currentMessage}`;
@@ -162,11 +163,11 @@ export const handleChatMessage = async (params: {
     .limit(20)
     .get();
 
-  const recentMessages = recentMessagesSnapshot.docs.map(doc => doc.data() as any).reverse();
+  const recentMessages = recentMessagesSnapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => doc.data() as any).reverse();
   const memorySummary = await getChatMemorySummary(user.id);
 
   const context = await buildContext(user, dailyStats, memorySummary, recentMessages, message);
-  const history = recentMessages.map(item => ({ role: item.role, content: item.content }));
+  const history = recentMessages.map((item: { role?: string; content?: string }) => ({ role: item.role, content: item.content }));
   logger.info({ userId: user.id, sessionId: session.id }, 'FitCal chat context assembled');
   const replyText = await generateCoachResponse(context, history);
 

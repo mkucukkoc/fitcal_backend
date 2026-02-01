@@ -79,7 +79,7 @@ export async function initializeRedis(): Promise<void> {
       redisConnected = true;
     });
 
-    redis.on('error', (error) => {
+    redis.on('error', (error: Error) => {
       logger.error({ 
         error: error.message,
         redisUrl: redisUrl,

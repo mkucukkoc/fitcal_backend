@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import { Request } from 'express';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 
@@ -110,7 +111,7 @@ export const authRateLimits = {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: req => {
+    keyGenerator: (req: Request) => {
       const userId = (req as any).user?.id;
       if (userId) {
         return `delete-account:${userId}`;
