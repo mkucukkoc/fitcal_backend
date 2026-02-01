@@ -57,6 +57,8 @@ import { createAppleAuthRouter } from './routes/apple';
 import { createPasswordResetRouter } from './routes/passwordReset';
 import { createDeleteAccountRouter } from './routes/deleteAccount';
 import { createPremiumRouter } from './routes/premium';
+import { createMealsRouter } from './routes/meals';
+import { createProgressRouter } from './routes/progress';
 // Chat router: resolve robustly to avoid ESM/CJS interop issues in Render
 // We intentionally avoid static import here
 import notificationRouter from './routes/notifications';
@@ -226,6 +228,8 @@ const startServer = async () => {
     if (createChatRouter) {
       mountRouter(`/api/${API_VERSION}/chat`, createChatRouter, 'chat');
     }
+    mountRouter(`/api/${API_VERSION}/meals`, createMealsRouter, 'meals');
+    mountRouter(`/api/${API_VERSION}/progress`, createProgressRouter, 'progress');
 
 
     // Legacy routes (backward compatibility)
@@ -240,6 +244,11 @@ const startServer = async () => {
     if (createChatRouter) {
       mountRouter('/chat', createChatRouter, 'chat (legacy)');
     }
+    if (createChatRouter) {
+      mountRouter('/api/chat', createChatRouter, 'chat (api legacy)');
+    }
+    mountRouter('/api/meals', createMealsRouter, 'meals (api legacy)');
+    mountRouter('/api/progress', createProgressRouter, 'progress (api legacy)');
     mountRouterInstance('/notifications', notificationRouter, 'notifications');
 
     // 404 handler (must be before error handler)
@@ -342,4 +351,3 @@ startServer().catch(err => {
   logger.error({ error: err }, 'Failed to start server');
   process.exit(1);
 });
-
