@@ -1,11 +1,11 @@
 import nodemailer from 'nodemailer';
 
-const SMTP_HOST = 'smtp.zoho.eu';
-const SMTP_PORT = 465;
-const SMTP_SECURE = true;
-const SMTP_USER = 'support@aveniaichat.com';
-const SMTP_PASS = 'vMQHrSMR5M3y';
-const SMTP_FROM = 'support@aveniaichat.com';
+const SMTP_HOST = process.env.SMTP_HOST || 'smtp.zoho.eu';
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const SMTP_SECURE = (process.env.SMTP_SECURE || 'true') === 'true';
+const SMTP_USER = process.env.SMTP_USER || 'support@aveniaichat.com';
+const SMTP_PASS = process.env.SMTP_PASS || 'vMQHrSMR5M3y';
+const SMTP_FROM = process.env.SMTP_FROM || `FitCal Ai <${SMTP_USER}>`;
 
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
@@ -27,4 +27,3 @@ export const emailService = {
     });
   },
 };
-

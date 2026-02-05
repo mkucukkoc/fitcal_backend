@@ -754,7 +754,7 @@ export function createAuthRouter(): Router {
         logger.debug({ sessionId, response: responsePayload }, 'Logout response payload');
         res.json(responsePayload);
       } catch (error) {
-        logger.error('Logout error:', error);
+        logger.error({ sessionId: req.body?.sessionId, err: error }, 'Logout error');
         res.status(500).json({ 
           error: 'internal_error',
           message: 'Logout failed' 
@@ -837,6 +837,7 @@ export function createAuthRouter(): Router {
   r.post('/register/email/start', 
     authRateLimits.register,
     async (req, res) => {
+      const requestId = Math.random().toString(36).substring(2, 8);
       try {
         const email = normalizeEmailInput(req.body?.email);
         if (!email) {
@@ -845,9 +846,16 @@ export function createAuthRouter(): Router {
             message: 'Email is required' 
           });
         }
+        logger.info({ requestId, email }, 'Registration email start requested');
 
         // Check if email is already registered
-        const existingUserAfterOtp = await UserService.findByEmail(email);
+        let existingUserAfterOtp;
+        try {
+          existingUserAfterOtp = await UserService.findByEmail(email);
+        } catch (error) {
+          logger.error({ requestId, email, step: 'findByEmail', err: error }, 'Registration email lookup failed');
+          throw error;
+        }
         const isSoftDeleted = isSoftDeletedUser(existingUserAfterOtp);
         if (existingUserAfterOtp && !isSoftDeleted) {
           const isGoogleAccount = existingUserAfterOtp.provider === 'google' || (!existingUserAfterOtp.provider && !existingUserAfterOtp.passwordHash);
@@ -863,7 +871,13 @@ export function createAuthRouter(): Router {
 
         // Rate limiting for email sending
         const key = `register_otp:rl:${email}`;
-        const rl = (await getJson<{ count: number }>(key)) || { count: 0 };
+        let rl = { count: 0 };
+        try {
+          rl = (await getJson<{ count: number }>(key)) || { count: 0 };
+        } catch (error) {
+          logger.error({ requestId, email, key, step: 'getJson', err: error }, 'Registration rate limit lookup failed');
+          throw error;
+        }
         if (rl.count >= 5) {
           return res.status(429).json({ 
             error: 'rate_limited',
@@ -871,26 +885,36 @@ export function createAuthRouter(): Router {
           });
         }
         rl.count += 1;
-        await setJson(key, rl, 600); // 10 minutes
+        try {
+          await setJson(key, rl, 600); // 10 minutes
+        } catch (error) {
+          logger.error({ requestId, email, key, step: 'setJson', err: error }, 'Registration rate limit update failed');
+          throw error;
+        }
 
         // Generate and store OTP
         const code = (randomInt(0, 999999) + '').padStart(6, '0');
         const codeHash = sha256(code);
-        await getRegisterOtpRef(email).set(
-          { 
-            email, 
-            codeHash, 
-            expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-            createdAt: new Date() 
-          },
-          { merge: true }
-        );
+        try {
+          await getRegisterOtpRef(email).set(
+            { 
+              email, 
+              codeHash, 
+              expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+              createdAt: new Date() 
+            },
+            { merge: true }
+          );
+        } catch (error) {
+          logger.error({ requestId, email, step: 'storeOtp', err: error }, 'Registration OTP store failed');
+          throw error;
+        }
 
         // Send email
         try {
           await sendOtpEmail(email, code);
         } catch (emailError) {
-          logger.error('Failed to send verification email:', emailError);
+          logger.error({ requestId, email, step: 'sendOtpEmail', err: emailError }, 'Failed to send verification email');
           // Don't fail the request if email sending fails
         }
 
@@ -899,7 +923,7 @@ export function createAuthRouter(): Router {
           message: 'Verification code sent to your email' 
         });
       } catch (error) {
-        logger.error('Send registration OTP error:', error);
+        logger.error({ requestId, step: 'register_email_start', err: error }, 'Send registration OTP error');
         res.status(500).json({ 
           error: 'internal_error',
           message: 'Failed to send verification code' 
@@ -1264,6 +1288,4 @@ export function createAuthRouter(): Router {
 function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
-
-
 

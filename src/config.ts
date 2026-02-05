@@ -126,11 +126,10 @@ export const config = {
     supportEndpoint: process.env.SUPPORT_WEBHOOK_URL || '',
   },
   notification: {
-    supportEmail: process.env.SUPPORT_EMAIL || 'support@aveniaichat.com',
+    supportEmail: process.env.SUPPORT_EMAIL || 'support@fitcal.ai',
     suppressInTest: process.env.NOTIFICATION_SUPPRESS === 'true' || process.env.NODE_ENV === 'test',
     restoreWindowDays: Number(process.env.DELETE_RESTORE_DAYS || 30),
   },
 };
-
 
 
