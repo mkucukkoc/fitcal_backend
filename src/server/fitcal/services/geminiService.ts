@@ -3,6 +3,15 @@ import { logger } from '../../../utils/logger';
 import { BIG_SYSTEM_PROMPT, MASTER_FOOD_ANALYSIS_PROMPT } from '../constants';
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+const DEFAULT_GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL
+  || process.env.GEMINI_MODEL
+  || 'gemini-2.5-flash';
+const DEFAULT_GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL
+  || process.env.GEMINI_MODEL
+  || 'gemini-2.5-pro';
+const DEFAULT_GEMINI_SUMMARY_MODEL = process.env.GEMINI_SUMMARY_MODEL
+  || process.env.GEMINI_MODEL
+  || 'gemini-2.5-flash';
 
 const getApiKey = () => process.env.GEMINI_API_KEY || '';
 
@@ -56,7 +65,12 @@ type GeminiResponse = {
   }>;
 };
 
-export const analyzeMealImage = async (imageBase64: string, mimeType: string, language: string) => {
+export const analyzeMealImage = async (
+  imageBase64: string,
+  mimeType: string,
+  language: string,
+  model?: string
+) => {
   const apiKey = getApiKey();
   if (!apiKey) {
     if (process.env.NODE_ENV !== 'production') {
@@ -66,6 +80,7 @@ export const analyzeMealImage = async (imageBase64: string, mimeType: string, la
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
+  const resolvedModel = model || DEFAULT_GEMINI_VISION_MODEL;
   logger.info({ mimeType, language }, 'Gemini meal analysis request started');
   const requestBody = {
     contents: [
@@ -85,7 +100,7 @@ export const analyzeMealImage = async (imageBase64: string, mimeType: string, la
   };
 
   const response = await axios.post<GeminiResponse>(
-    `${GEMINI_BASE_URL}/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    `${GEMINI_BASE_URL}/models/${resolvedModel}:generateContent?key=${apiKey}`,
     requestBody
   );
 
@@ -119,7 +134,7 @@ export const generateCoachResponse = async (context: string, history: Array<{ ro
   };
 
   const response = await axios.post<GeminiResponse>(
-    `${GEMINI_BASE_URL}/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
+    `${GEMINI_BASE_URL}/models/${DEFAULT_GEMINI_CHAT_MODEL}:generateContent?key=${apiKey}`,
     requestBody
   );
 
@@ -153,7 +168,7 @@ export const generateSummary = async (summaryInput: string) => {
 
   try {
     const response = await axios.post<GeminiResponse>(
-      `${GEMINI_BASE_URL}/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `${GEMINI_BASE_URL}/models/${DEFAULT_GEMINI_SUMMARY_MODEL}:generateContent?key=${apiKey}`,
       requestBody
     );
     return response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;

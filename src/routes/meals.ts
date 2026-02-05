@@ -208,7 +208,7 @@ export const createMealsRouter = () => {
         email: authReq.user.email
       });
 
-      const model = req.body?.model || 'gemini-1.5-flash';
+      const model = req.body?.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
       const options = req.body?.options || {};
       const result = await analyzeMeal(req.params.id, model, options.language || userInfo.language || 'tr');
 

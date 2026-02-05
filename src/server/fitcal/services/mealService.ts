@@ -197,7 +197,7 @@ export const analyzeMeal = async (mealId: string, model: string, language: strin
     throw new Error('Meal image is missing');
   }
 
-  const analysis = await analyzeMealImage(imageBase64, mimeType, language);
+  const analysis = await analyzeMealImage(imageBase64, mimeType, language, model);
 
   const resultId = uuidv4();
   const result: AnalysisResult = {
