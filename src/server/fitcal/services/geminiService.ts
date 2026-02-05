@@ -10,6 +10,42 @@ const cleanJsonResponse = (text: string) => {
   return text.replace(/```json|```/g, '').trim();
 };
 
+const createMockAnalysis = (language: string) => {
+  const isTurkish = (language || '').toLowerCase().startsWith('tr');
+  return {
+    total_calories: 480,
+    total_macros: { p: 32, c: 46, f: 18 },
+    items: [
+      {
+        name: isTurkish ? 'Tavuk Izgara' : 'Grilled Chicken',
+        amount: 150,
+        unit: 'g',
+        calories: 248,
+        macros: { p: 31, c: 0, f: 5 }
+      },
+      {
+        name: isTurkish ? 'Kinoa' : 'Quinoa',
+        amount: 120,
+        unit: 'g',
+        calories: 170,
+        macros: { p: 6, c: 30, f: 3 }
+      },
+      {
+        name: isTurkish ? 'Salata' : 'Salad',
+        amount: 80,
+        unit: 'g',
+        calories: 62,
+        macros: { p: 2, c: 10, f: 2 }
+      }
+    ],
+    confidence: 0.38,
+    health_score: 78,
+    coach_note: isTurkish
+      ? 'Demo modunda örnek bir analiz gösteriliyor. Gerçek analiz için GEMINI_API_KEY ekleyin.'
+      : 'Showing a demo analysis. Add GEMINI_API_KEY for real meal analysis.'
+  };
+};
+
 type GeminiResponse = {
   candidates?: Array<{
     content?: {
@@ -23,6 +59,10 @@ type GeminiResponse = {
 export const analyzeMealImage = async (imageBase64: string, mimeType: string, language: string) => {
   const apiKey = getApiKey();
   if (!apiKey) {
+    if (process.env.NODE_ENV !== 'production') {
+      logger.warn('GEMINI_API_KEY missing; returning mock analysis for non-production');
+      return createMockAnalysis(language);
+    }
     throw new Error('GEMINI_API_KEY is not configured');
   }
 

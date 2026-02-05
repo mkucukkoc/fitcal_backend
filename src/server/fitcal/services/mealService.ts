@@ -21,6 +21,9 @@ export interface MealRecord {
   id: string;
   user_id: string;
   image_url?: string | null;
+  image_base64?: string | null;
+  image_mime_type?: string | null;
+  label?: string | null;
   source: 'camera' | 'manual';
   meal_time: string;
   status: 'draft' | 'confirmed';
@@ -42,35 +45,60 @@ export interface AnalysisResult {
   created_at: string;
 }
 
+export interface StoredMealImage {
+  url: string;
+  base64?: string;
+  mimeType?: string;
+  isMock?: boolean;
+}
+
+const extractImageFromDataUrl = (dataUrl: string) => {
+  const match = dataUrl.match(/^data:(.+);base64,(.*)$/);
+  if (!match) {
+    return null;
+  }
+  return { mimeType: match[1], base64: match[2] };
+};
+
 export const uploadMealImage = async (
   userId: string,
   mealId: string,
   fileBuffer: Buffer,
   mimeType: string
-): Promise<string> => {
+): Promise<StoredMealImage> => {
   const bucket = storage.bucket();
   const extension = mimeType.split('/')[1] || 'jpg';
   const path = `meals/${userId}/${mealId}.${extension}`;
 
   const file = bucket.file(path) as any;
   if (typeof file.save === 'function') {
-    await file.save(fileBuffer, { metadata: { contentType: mimeType } });
-    if (typeof file.makePublic === 'function') {
-      await file.makePublic();
+    try {
+      await file.save(fileBuffer, { metadata: { contentType: mimeType } });
+      if (typeof file.makePublic === 'function') {
+        await file.makePublic();
+      }
+      const bucketName = 'name' in bucket && typeof (bucket as any).name === 'string'
+        ? (bucket as any).name
+        : process.env.FIREBASE_STORAGE_BUCKET || 'mock';
+      return { url: `https://storage.googleapis.com/${bucketName}/${path}`, isMock: false };
+    } catch (error) {
+      logger.warn({ err: error }, 'Storage upload failed, falling back to inline base64 storage');
     }
-    const bucketName = 'name' in bucket && typeof (bucket as any).name === 'string'
-      ? (bucket as any).name
-      : process.env.FIREBASE_STORAGE_BUCKET || 'mock';
-    return `https://storage.googleapis.com/${bucketName}/${path}`;
   }
 
-  logger.warn('Storage not configured, returning mock image url');
-  return `mock://storage/${path}`;
+  logger.warn('Storage not configured, using inline base64 for meal image');
+  return {
+    url: `mock://storage/${path}`,
+    base64: fileBuffer.toString('base64'),
+    mimeType,
+    isMock: true
+  };
 };
 
 export const createMeal = async (data: {
   userId: string;
   imageUrl?: string | null;
+  label?: string | null;
   source: 'camera' | 'manual';
   mealTime?: string;
 }) => {
@@ -80,6 +108,7 @@ export const createMeal = async (data: {
     id: mealId,
     user_id: data.userId,
     image_url: data.imageUrl || null,
+    label: data.label || null,
     source: data.source,
     meal_time: data.mealTime || now,
     status: 'draft',
@@ -139,18 +168,34 @@ export const analyzeMeal = async (mealId: string, model: string, language: strin
   }
 
   const mealData = mealDoc.data() as MealRecord;
-  if (!mealData?.image_url) {
-    throw new Error('Meal image is missing');
+  let imageBase64 = mealData?.image_base64 || null;
+  let mimeType = mealData?.image_mime_type || 'image/jpeg';
+
+  if (!imageBase64 && mealData?.image_url) {
+    const inline = extractImageFromDataUrl(mealData.image_url);
+    if (inline) {
+      imageBase64 = inline.base64;
+      mimeType = inline.mimeType || mimeType;
+    }
   }
 
-  logger.info({ mealId, model }, 'Starting meal image analysis');
-  const imageResponse = await axios.get<ArrayBuffer>(mealData.image_url, { responseType: 'arraybuffer' });
-  if (imageResponse.status >= 400) {
-    throw new Error('Failed to download meal image');
+  if (!imageBase64 && mealData?.image_url) {
+    if (mealData.image_url.startsWith('mock://')) {
+      throw new Error('Meal image is stored locally and cannot be analyzed. Please re-upload the meal image.');
+    }
+    logger.info({ mealId, model }, 'Starting meal image analysis');
+    const imageResponse = await axios.get<ArrayBuffer>(mealData.image_url, { responseType: 'arraybuffer' });
+    if (imageResponse.status >= 400) {
+      throw new Error('Failed to download meal image');
+    }
+    const buffer = Buffer.from(imageResponse.data);
+    mimeType = imageResponse.headers['content-type'] || mimeType;
+    imageBase64 = buffer.toString('base64');
   }
-  const buffer = Buffer.from(imageResponse.data);
-  const mimeType = imageResponse.headers['content-type'] || 'image/jpeg';
-  const imageBase64 = buffer.toString('base64');
+
+  if (!imageBase64) {
+    throw new Error('Meal image is missing');
+  }
 
   const analysis = await analyzeMealImage(imageBase64, mimeType, language);
 

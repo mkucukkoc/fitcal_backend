@@ -23,7 +23,7 @@ export const createMealsRouter = () => {
         return;
       }
 
-      const { source = 'camera', meal_time, image_url } = req.body;
+      const { source = 'camera', meal_time, image_url, label } = req.body;
       const userInfo = await ensureUserInfo(authReq.user.id, {
         name: authReq.user.name,
         email: authReq.user.email
@@ -32,19 +32,28 @@ export const createMealsRouter = () => {
       const meal = await createMeal({
         userId: authReq.user.id,
         imageUrl: image_url || null,
+        label: label || null,
         source,
         mealTime: meal_time
       });
 
       if (fileRequest.file) {
-        const uploadedUrl = await uploadMealImage(
+        const uploaded = await uploadMealImage(
           authReq.user.id,
           meal.id,
           fileRequest.file.buffer,
           fileRequest.file.mimetype
         );
-        await updateMeal(meal.id, { image_url: uploadedUrl });
-        meal.image_url = uploadedUrl;
+        const updates: Record<string, any> = {
+          image_url: uploaded.url,
+          updated_at: new Date().toISOString()
+        };
+        if (uploaded.base64) {
+          updates.image_base64 = uploaded.base64;
+          updates.image_mime_type = uploaded.mimeType || fileRequest.file.mimetype;
+        }
+        await updateMeal(meal.id, updates);
+        meal.image_url = uploaded.url;
       }
 
       res.status(201).json({
@@ -54,6 +63,85 @@ export const createMealsRouter = () => {
     } catch (error) {
       logger.error({ err: error }, 'Failed to create meal');
       res.status(500).json({ error: 'internal_error', message: 'Meal creation failed' });
+    }
+  });
+
+  router.post('/manual', authenticateToken, async (req, res) => {
+    try {
+      const authReq = req as AuthRequest;
+      if (!authReq.user) {
+        res.status(401).json({ error: 'access_denied', message: 'Authentication required' });
+        return;
+      }
+
+      const {
+        meal_time,
+        calories,
+        protein_g,
+        carbs_g,
+        fat_g,
+        label
+      } = req.body || {};
+
+      const caloriesValue = Number(calories ?? 0);
+      const proteinValue = Number(protein_g ?? 0);
+      const carbsValue = Number(carbs_g ?? 0);
+      const fatValue = Number(fat_g ?? 0);
+
+      const hasAnyPositive =
+        (Number.isFinite(caloriesValue) && caloriesValue > 0)
+        || (Number.isFinite(proteinValue) && proteinValue > 0)
+        || (Number.isFinite(carbsValue) && carbsValue > 0)
+        || (Number.isFinite(fatValue) && fatValue > 0);
+
+      if (!hasAnyPositive) {
+        res.status(400).json({ error: 'invalid_request', message: 'Macros or calories are required' });
+        return;
+      }
+
+      const userInfo = await ensureUserInfo(authReq.user.id, {
+        name: authReq.user.name,
+        email: authReq.user.email
+      });
+
+      let mealTime = meal_time ? new Date(meal_time) : new Date();
+      if (Number.isNaN(mealTime.getTime())) {
+        mealTime = new Date();
+      }
+
+      const meal = await createMeal({
+        userId: authReq.user.id,
+        source: 'manual',
+        mealTime: mealTime.toISOString(),
+        label: label || null
+      });
+
+      await updateMeal(meal.id, {
+        calories: Number.isFinite(caloriesValue) ? Math.max(caloriesValue, 0) : 0,
+        protein_g: Number.isFinite(proteinValue) ? Math.max(proteinValue, 0) : 0,
+        carbs_g: Number.isFinite(carbsValue) ? Math.max(carbsValue, 0) : 0,
+        fat_g: Number.isFinite(fatValue) ? Math.max(fatValue, 0) : 0,
+        label: label || null
+      });
+
+      const totals = await confirmMeal(meal.id);
+      const date = formatDateInTimeZone(mealTime, userInfo.timezone || 'UTC');
+      const stats = await incrementDailyStats(userInfo, date, {
+        calories_consumed: totals.calories || 0,
+        protein_consumed_g: totals.protein_g || 0,
+        carbs_consumed_g: totals.carbs_g || 0,
+        fat_consumed_g: totals.fat_g || 0
+      });
+
+      res.status(201).json({
+        ok: true,
+        meal_id: meal.id,
+        totals,
+        daily_stats: stats
+      });
+    } catch (error) {
+      logger.error({ err: error }, 'Manual meal logging failed');
+      res.status(500).json({ error: 'internal_error', message: 'Manual meal logging failed' });
     }
   });
 
@@ -141,8 +229,16 @@ export const createMealsRouter = () => {
         analysis_result_id: result.analysis.id
       });
     } catch (error) {
+      const message = (error as Error)?.message || 'Meal analysis failed';
+      const lower = message.toLowerCase();
+      const isConfigIssue = lower.includes('gemini_api_key');
+      const isInputIssue = lower.includes('image') || lower.includes('meal');
+      const status = isConfigIssue ? 503 : isInputIssue ? 400 : 500;
       logger.error({ err: error }, 'Meal analysis failed');
-      res.status(500).json({ error: 'internal_error', message: 'Meal analysis failed' });
+      res.status(status).json({
+        error: isConfigIssue ? 'service_unavailable' : isInputIssue ? 'invalid_request' : 'internal_error',
+        message
+      });
     }
   });
 
