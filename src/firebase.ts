@@ -2,14 +2,20 @@ import { logger } from './utils/logger';
 import * as firebaseAdmin from 'firebase-admin';
 
 // Initialize Firebase Admin SDK
+const isProduction = process.env.NODE_ENV === 'production';
+
 if (!firebaseAdmin.apps.length) {
   try {
     // Try to initialize with service account
-    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY 
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
       ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)
       : null;
 
     const storageBucket = process.env.FIREBASE_STORAGE_BUCKET || 'aveniaapp.firebasestorage.app';
+
+    if (isProduction && !serviceAccount) {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is required in production');
+    }
 
     if (serviceAccount) {
       firebaseAdmin.initializeApp({
@@ -25,8 +31,16 @@ if (!firebaseAdmin.apps.length) {
     }
   } catch (error) {
     logger.error('Failed to initialize Firebase Admin SDK:', error);
+    if (isProduction) {
+      logger.error('Firebase initialization failed in production; exiting.');
+      throw error;
+    }
     logger.warn('Falling back to mock Firebase for development');
   }
+}
+
+if (isProduction && firebaseAdmin.apps.length === 0) {
+  throw new Error('Firebase Admin SDK not initialized in production');
 }
 
 type DocumentData = Record<string, any>;
@@ -409,4 +423,3 @@ export const FieldValue = {
 // Export Firestore instance
 export const db = admin.firestore();
 export const storage = admin.storage();
-
