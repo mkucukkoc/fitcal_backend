@@ -1,12 +1,12 @@
 export const swaggerSpec = {
   openapi: '3.0.0',
   info: {
-    title: 'Avenia API',
+    title: 'FitCal AI API',
     version: '2.0.0',
-    description: 'Avenia AI Chat Application Backend API - Complete Documentation',
+    description: 'FitCal AI Health & Nutrition Backend API - Complete Documentation',
     contact: {
-      name: 'Avenia Team',
-      email: 'support@aveniaichat.com',
+      name: 'FitCal AI Team',
+      email: 'support@fitcal.ai',
     },
     license: {
       name: 'MIT',
@@ -15,8 +15,8 @@ export const swaggerSpec = {
   },
   servers: [
     {
-      url: 'https://google-auth-e4er.onrender.com',
-      description: 'Production server',
+      url: 'https://fitcal-backend-nyko.onrender.com',
+      description: 'Production server (FitCal AI)',
     },
     {
       url: 'http://localhost:4000',
@@ -1561,6 +1561,455 @@ export const swaggerSpec = {
       },
     },
 
+    // ==================== FITCAL CHAT ====================
+    '/api/v1/chat': {
+      post: {
+        summary: 'Send chat message',
+        description: 'FitCal AI koç mesajı gönderir. `stream=true` gönderilirse yanıt websocket üzerinden stream edilir.',
+        tags: ['FitCal Chat'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  sessionId: { type: 'string', example: 'chat_123' },
+                  message: { type: 'string', example: 'Bugün kaç kalori aldım?' },
+                  context: { type: 'object', additionalProperties: true },
+                  stream: { type: 'boolean', example: true },
+                  image: {
+                    type: 'object',
+                    nullable: true,
+                    properties: {
+                      data: { type: 'string', description: 'Base64 image data (no data URI prefix)' },
+                      mimeType: { type: 'string', example: 'image/jpeg' },
+                    },
+                  },
+                },
+                required: ['message'],
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Chat response',
+            content: {
+              'application/json': {
+                schema: {
+                  oneOf: [
+                    {
+                      type: 'object',
+                      properties: {
+                        streaming: { type: 'boolean', example: true },
+                        messageId: { type: 'string', example: 'msg_123' },
+                        sessionId: { type: 'string', example: 'chat_123' },
+                      },
+                    },
+                    {
+                      type: 'object',
+                      properties: {
+                        reply: { type: 'string', example: 'Bugün 1350 kcal aldın.' },
+                        sessionId: { type: 'string', example: 'chat_123' },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          400: { description: 'Invalid request' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Chat request failed' },
+        },
+      },
+    },
+
+    '/api/v1/chat/sessions': {
+      get: {
+        summary: 'List chat sessions',
+        description: 'Kullanıcının chat oturumlarını listeler.',
+        tags: ['FitCal Chat'],
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: {
+            description: 'Sessions list',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    sessions: {
+                      type: 'array',
+                      items: { type: 'object' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: 'Unauthorized' },
+        },
+      },
+    },
+
+    '/api/v1/chat/sessions/{id}/messages': {
+      get: {
+        summary: 'List chat messages',
+        description: 'Belirtilen oturumdaki mesajları getirir.',
+        tags: ['FitCal Chat'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Messages list',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    messages: {
+                      type: 'array',
+                      items: { type: 'object' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: 'Unauthorized' },
+        },
+      },
+    },
+
+    // ==================== FITCAL MEALS ====================
+    '/api/v1/meals': {
+      post: {
+        summary: 'Create meal',
+        description: 'Yeni bir öğün oluşturur. Görsel yüklemek için multipart/form-data kullanın.',
+        tags: ['FitCal Meals'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                properties: {
+                  image: { type: 'string', format: 'binary' },
+                  source: { type: 'string', example: 'camera' },
+                  meal_time: { type: 'string', format: 'date-time' },
+                  image_url: { type: 'string', format: 'uri' },
+                  label: { type: 'string', example: 'Lunch' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Meal created' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Meal creation failed' },
+        },
+      },
+      get: {
+        summary: 'List meals by date',
+        description: 'Belirli tarihteki öğünleri listeler.',
+        tags: ['FitCal Meals'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'date',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', example: '2026-02-06' },
+          },
+        ],
+        responses: {
+          200: { description: 'Meals list' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Failed to list meals' },
+        },
+      },
+    },
+
+    '/api/v1/meals/manual': {
+      post: {
+        summary: 'Log manual meal',
+        description: 'Manuel kalori/makro girişi ile öğün oluşturur.',
+        tags: ['FitCal Meals'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  meal_time: { type: 'string', format: 'date-time' },
+                  calories: { type: 'number', example: 450 },
+                  protein_g: { type: 'number', example: 25 },
+                  carbs_g: { type: 'number', example: 40 },
+                  fat_g: { type: 'number', example: 12 },
+                  label: { type: 'string', example: 'Manual snack' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Manual meal logged' },
+          400: { description: 'Invalid request' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Manual meal logging failed' },
+        },
+      },
+    },
+
+    '/api/v1/meals/{id}': {
+      get: {
+        summary: 'Get meal',
+        description: 'Öğün detaylarını getirir.',
+        tags: ['FitCal Meals'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: { description: 'Meal details' },
+          404: { description: 'Meal not found' },
+          401: { description: 'Unauthorized' },
+        },
+      },
+      patch: {
+        summary: 'Update meal',
+        description: 'Öğün alanlarını günceller.',
+        tags: ['FitCal Meals'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { type: 'object', additionalProperties: true },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Meal updated' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Failed to update meal' },
+        },
+      },
+    },
+
+    '/api/v1/meals/{id}/analyze': {
+      post: {
+        summary: 'Analyze meal image',
+        description: 'Gemini ile öğün görsel analizi yapar.',
+        tags: ['FitCal Meals'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  model: { type: 'string', example: 'gemini-2.5-flash' },
+                  options: {
+                    type: 'object',
+                    properties: {
+                      language: { type: 'string', example: 'tr' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Analysis result' },
+          400: { description: 'Invalid request' },
+          503: { description: 'Gemini API unavailable' },
+          500: { description: 'Meal analysis failed' },
+        },
+      },
+    },
+
+    '/api/v1/meals/{id}/confirm': {
+      post: {
+        summary: 'Confirm meal analysis',
+        description: 'Analiz sonucu onaylayıp günlük istatistiklere ekler.',
+        tags: ['FitCal Meals'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  analysisResultId: { type: 'string', example: 'analysis_123' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Meal confirmed' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Meal confirmation failed' },
+        },
+      },
+    },
+
+    // ==================== FITCAL PROGRESS ====================
+    '/api/v1/progress/daily': {
+      get: {
+        summary: 'Get daily stats',
+        description: 'Günlük istatistikleri döndürür.',
+        tags: ['FitCal Progress'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'date', in: 'query', required: false, schema: { type: 'string', example: '2026-02-06' } },
+        ],
+        responses: {
+          200: { description: 'Daily stats' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Failed to fetch daily stats' },
+        },
+      },
+    },
+
+    '/api/v1/progress/weekly': {
+      get: {
+        summary: 'Get weekly stats',
+        description: 'Haftalık istatistikleri döndürür.',
+        tags: ['FitCal Progress'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'weekStart', in: 'query', required: false, schema: { type: 'string', example: '2026-02-03' } },
+        ],
+        responses: {
+          200: { description: 'Weekly stats' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Failed to fetch weekly stats' },
+        },
+      },
+    },
+
+    '/api/v1/progress/weight': {
+      post: {
+        summary: 'Update weight',
+        description: 'Kullanıcının kilosunu günceller.',
+        tags: ['FitCal Progress'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  weight_kg: { type: 'number', example: 72.5 },
+                },
+                required: ['weight_kg'],
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Weight updated' },
+          400: { description: 'Invalid request' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Failed to update weight' },
+        },
+      },
+    },
+
+    '/api/v1/progress/water': {
+      post: {
+        summary: 'Log water',
+        description: 'Su tüketimini kaydeder.',
+        tags: ['FitCal Progress'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  amount_ml: { type: 'number', example: 250 },
+                  timestamp: { type: 'string', format: 'date-time' },
+                },
+                required: ['amount_ml'],
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Water logged' },
+          400: { description: 'Invalid request' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Failed to log water' },
+        },
+      },
+    },
+
+    '/api/v1/progress/profile': {
+      post: {
+        summary: 'Sync onboarding profile',
+        description: 'Onboarding sırasında toplanan verileri user_info kaydına işler.',
+        tags: ['FitCal Progress'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  age: { type: 'number', example: 29 },
+                  gender: { type: 'string', enum: ['male', 'female', 'other'], example: 'male' },
+                  height_cm: { type: 'number', example: 178 },
+                  current_weight_kg: { type: 'number', example: 76 },
+                  target_weight_kg: { type: 'number', example: 70 },
+                  activity_level: { type: 'string', example: 'moderate' },
+                  goal: { type: 'string', enum: ['lose', 'maintain', 'gain'], example: 'lose' },
+                  device_id: { type: 'string', example: 'device_123' },
+                  completed_at: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Profile synced' },
+          401: { description: 'Unauthorized' },
+          500: { description: 'Failed to sync onboarding profile' },
+        },
+      },
+    },
+
     // ==================== PRESENTATION ====================
   },
   tags: [
@@ -1573,6 +2022,9 @@ export const swaggerSpec = {
     { name: 'PDF Read', description: 'PDF processing and AI analysis' },
     { name: 'Notifications', description: 'Push notification management' },
     { name: 'Delete Account', description: 'Account deletion and data export (GDPR/KVKK compliant)' },
-    { name: 'Premium', description: 'Premium abonelik yönetimi ve senkronizasyonu' }
+    { name: 'Premium', description: 'Premium abonelik yönetimi ve senkronizasyonu' },
+    { name: 'FitCal Chat', description: 'FitCal AI coach chat endpoints' },
+    { name: 'FitCal Meals', description: 'Meal logging, analysis and confirmation' },
+    { name: 'FitCal Progress', description: 'Daily/weekly stats and onboarding sync' }
   ]
 } as const;
