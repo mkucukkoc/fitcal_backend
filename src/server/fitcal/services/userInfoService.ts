@@ -15,6 +15,9 @@ export interface UserInfo {
   goal?: 'lose' | 'maintain' | 'gain';
   language?: 'tr' | 'en';
   timezone?: string;
+  onboarding_completed?: boolean;
+  onboarding_device_id?: string;
+  onboarding_completed_at?: string;
   created_at?: string;
   updated_at?: string;
 }

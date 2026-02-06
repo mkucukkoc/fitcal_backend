@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken, AuthRequest } from '../middleware/authMiddleware';
-import { ensureUserInfo, updateUserInfo } from '../server/fitcal/services/userInfoService';
+import { ensureUserInfo, getUserInfo, updateUserInfo } from '../server/fitcal/services/userInfoService';
 import { formatDateInTimeZone } from '../server/fitcal/utils/timezone';
 import { getOrCreateDailyStats, getWeeklyStats, incrementDailyStats, logWater } from '../server/fitcal/services/progressService';
 import { logger } from '../utils/logger';
@@ -106,6 +106,94 @@ export const createProgressRouter = () => {
     } catch (error) {
       logger.error({ err: error }, 'Failed to log water');
       res.status(500).json({ error: 'internal_error', message: 'Failed to log water' });
+    }
+  });
+
+  router.post('/profile', authenticateToken, async (req, res) => {
+    try {
+      const authReq = req as AuthRequest;
+      if (!authReq.user) {
+        res.status(401).json({ error: 'access_denied', message: 'Authentication required' });
+        return;
+      }
+
+      const {
+        age,
+        gender,
+        height_cm,
+        current_weight_kg,
+        target_weight_kg,
+        activity_level,
+        goal,
+        device_id,
+        completed_at,
+      } = req.body || {};
+
+      const existing = await getUserInfo(authReq.user.id);
+      if (existing?.onboarding_completed) {
+        res.json({ ok: true, synced: false, reason: 'already_completed', user: existing });
+        return;
+      }
+
+      const updates: Record<string, any> = {};
+      if (!existing?.name && authReq.user.name) {
+        updates.name = authReq.user.name;
+      }
+      if (!existing?.email && authReq.user.email) {
+        updates.email = authReq.user.email;
+      }
+
+      const ageValue = Number(age);
+      if (Number.isFinite(ageValue) && ageValue > 0) {
+        const birthDate = new Date();
+        birthDate.setFullYear(birthDate.getFullYear() - Math.round(ageValue));
+        updates.birth_date = birthDate.toISOString();
+      }
+
+      if (gender === 'male' || gender === 'female' || gender === 'other') {
+        updates.gender = gender;
+      }
+      const heightValue = Number(height_cm);
+      if (Number.isFinite(heightValue) && heightValue > 0) {
+        updates.height_cm = heightValue;
+      }
+      const currentWeightValue = Number(current_weight_kg);
+      if (Number.isFinite(currentWeightValue) && currentWeightValue > 0) {
+        updates.current_weight_kg = currentWeightValue;
+      }
+      const targetWeightValue = Number(target_weight_kg);
+      if (Number.isFinite(targetWeightValue) && targetWeightValue > 0) {
+        updates.target_weight_kg = targetWeightValue;
+      }
+
+      const normalizedActivity = (() => {
+        if (activity_level === 'very') return 'very_active';
+        if (activity_level === 'active') return 'active';
+        if (activity_level === 'very_active') return 'very_active';
+        if (activity_level === 'moderate') return 'moderate';
+        if (activity_level === 'light') return 'light';
+        if (activity_level === 'sedentary') return 'sedentary';
+        return null;
+      })();
+      if (normalizedActivity) {
+        updates.activity_level = normalizedActivity;
+      }
+
+      if (goal === 'lose' || goal === 'maintain' || goal === 'gain') {
+        updates.goal = goal;
+      }
+
+      updates.onboarding_completed = true;
+      if (typeof device_id === 'string' && device_id.trim() !== '') {
+        updates.onboarding_device_id = device_id;
+      }
+      updates.onboarding_completed_at = typeof completed_at === 'string' ? completed_at : new Date().toISOString();
+
+      const updated = await updateUserInfo(authReq.user.id, updates);
+      res.json({ ok: true, synced: true, user: updated });
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to sync onboarding profile');
+      res.status(500).json({ error: 'internal_error', message: 'Failed to sync onboarding profile' });
     }
   });
 

@@ -2,9 +2,30 @@ import { db } from '../../../firebase';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { v4 as uuidv4 } from 'uuid';
 import { formatDateInTimeZone } from '../utils/timezone';
-import { generateCoachResponse, generateSummary } from './geminiService';
+import { generateCoachResponse, generateSummary, streamCoachResponse } from './geminiService';
 import { calculateDailyTargets, UserInfo } from './userInfoService';
 import { logger } from '../../../utils/logger';
+import { getWebSocketService } from '../../../services/websocketService';
+
+const COACH_REFUSAL_MESSAGE = 'Ben bir FitCal AI kalori koçuyum, bu isteği yerine getiremiyorum.';
+
+const shouldRefuseCoachRequest = (message: string) => {
+  const lower = (message || '').toLowerCase();
+  if (!lower) {
+    return false;
+  }
+
+  const disallowedFileTypes = ['pdf', 'doc', 'docx', 'word', 'ppt', 'pptx', 'powerpoint'];
+  if (disallowedFileTypes.some(type => lower.includes(type))) {
+    return true;
+  }
+
+  const createVerbs = ['oluştur', 'üret', 'generate', 'create', 'yap', 'tasarla', 'çiz', 'yaz'];
+  const targets = ['görsel', 'resim', 'image', 'logo', 'video', 'kod', 'code', 'script', 'website', 'web sitesi', 'uygulama', 'app'];
+  const hasCreateVerb = createVerbs.some(verb => lower.includes(verb));
+  const hasTarget = targets.some(target => lower.includes(target));
+  return hasCreateVerb && hasTarget;
+};
 
 export const createChatSession = async (userId: string) => {
   const now = new Date().toISOString();
@@ -135,14 +156,15 @@ const buildContext = async (user: UserInfo, stats: any, memorySummary: any, rece
   return `${userContext}\n---\n${dailyStats}\n---\n${weeklySummary}\n---\n${memory}\n---\nSon Konuşmalar:\n${history}\n---\nYeni Mesaj: ${currentMessage}`;
 };
 
-export const handleChatMessage = async (params: {
+const prepareChatContext = async (params: {
   user: UserInfo;
   sessionId?: string;
   message: string;
   dailyStats?: any;
   contextTags?: Record<string, unknown>;
+  imageMeta?: { mimeType?: string } | null;
 }) => {
-  const { user, sessionId, message, dailyStats, contextTags } = params;
+  const { user, sessionId, message, dailyStats, contextTags, imageMeta } = params;
   const session = sessionId ? { id: sessionId } : await createChatSession(user.id);
 
   const now = new Date().toISOString();
@@ -153,6 +175,7 @@ export const handleChatMessage = async (params: {
     role: 'user',
     content: message,
     metadata: contextTags || null,
+    image: imageMeta || null,
     created_at: now
   });
 
@@ -168,8 +191,40 @@ export const handleChatMessage = async (params: {
 
   const context = await buildContext(user, dailyStats, memorySummary, recentMessages, message);
   const history = recentMessages.map((item: { role?: string; content?: string }) => ({ role: item.role, content: item.content }));
+
+  return {
+    session,
+    userMessageId,
+    recentMessages,
+    memorySummary,
+    context,
+    history,
+  };
+};
+
+export const handleChatMessage = async (params: {
+  user: UserInfo;
+  sessionId?: string;
+  message: string;
+  dailyStats?: any;
+  contextTags?: Record<string, unknown>;
+  imagePayload?: { data: string; mimeType: string } | null;
+}) => {
+  const { user, sessionId, message, dailyStats, contextTags, imagePayload } = params;
+  const imageMeta = imagePayload ? { mimeType: imagePayload.mimeType } : null;
+  const { session, context, history } = await prepareChatContext({
+    user,
+    sessionId,
+    message,
+    dailyStats,
+    contextTags,
+    imageMeta
+  });
+
   logger.info({ userId: user.id, sessionId: session.id }, 'FitCal chat context assembled');
-  const replyText = await generateCoachResponse(context, history);
+  const replyText = shouldRefuseCoachRequest(message)
+    ? COACH_REFUSAL_MESSAGE
+    : await generateCoachResponse(context, history, imagePayload || undefined);
 
   const assistantMessageId = uuidv4();
   await db.collection('chat_messages').doc(assistantMessageId).set({
@@ -193,5 +248,102 @@ export const handleChatMessage = async (params: {
   return {
     reply: replyText,
     sessionId: session.id
+  };
+};
+
+export const handleChatMessageStream = async (params: {
+  user: UserInfo;
+  sessionId?: string;
+  message: string;
+  dailyStats?: any;
+  contextTags?: Record<string, unknown>;
+  imagePayload?: { data: string; mimeType: string } | null;
+}) => {
+  const { user, sessionId, message, dailyStats, contextTags, imagePayload } = params;
+  const imageMeta = imagePayload ? { mimeType: imagePayload.mimeType } : null;
+  const { session, context, history } = await prepareChatContext({
+    user,
+    sessionId,
+    message,
+    dailyStats,
+    contextTags,
+    imageMeta,
+  });
+
+  const assistantMessageId = uuidv4();
+  const websocket = getWebSocketService();
+
+  const sendChunk = (payload: { delta?: string; content?: string; isFinal?: boolean; error?: string }) => {
+    websocket?.sendToUser(user.id, 'chat:stream', {
+      chatId: session.id,
+      messageId: assistantMessageId,
+      ...payload,
+    });
+  };
+
+  const finalizeAndPersist = async (content: string) => {
+    await db.collection('chat_messages').doc(assistantMessageId).set({
+      id: assistantMessageId,
+      session_id: session.id,
+      role: 'assistant',
+      content,
+      metadata: contextTags || null,
+      created_at: new Date().toISOString()
+    });
+
+    await db.collection('chat_sessions').doc(session.id).set(
+      {
+        updated_at: new Date().toISOString()
+      },
+      { merge: true }
+    );
+
+    await maybeUpdateSummary(user.id, session.id);
+  };
+
+  const runStream = async () => {
+    if (shouldRefuseCoachRequest(message)) {
+      sendChunk({ delta: COACH_REFUSAL_MESSAGE, isFinal: true, content: COACH_REFUSAL_MESSAGE });
+      await finalizeAndPersist(COACH_REFUSAL_MESSAGE);
+      return;
+    }
+
+    let sentAny = false;
+    let latestText = '';
+
+    try {
+      latestText = await streamCoachResponse({
+        context,
+        history,
+        image: imagePayload || undefined,
+        onDelta: (delta, fullText) => {
+          sentAny = true;
+          latestText = fullText;
+          sendChunk({ delta });
+        },
+      });
+
+      const finalText = latestText || '';
+      sendChunk({ content: finalText, isFinal: true });
+      await finalizeAndPersist(finalText);
+    } catch (error) {
+      logger.error({ err: error, userId: user.id, sessionId: session.id }, 'Gemini streaming failed');
+      if (!sentAny) {
+        const fallback = await generateCoachResponse(context, history, imagePayload || undefined);
+        sendChunk({ content: fallback, delta: fallback, isFinal: true });
+        await finalizeAndPersist(fallback);
+      } else {
+        sendChunk({ error: 'Streaming failed', isFinal: true, content: latestText || '' });
+        if (latestText) {
+          await finalizeAndPersist(latestText);
+        }
+      }
+    }
+  };
+
+  return {
+    sessionId: session.id,
+    messageId: assistantMessageId,
+    run: runStream,
   };
 };

@@ -65,6 +65,57 @@ type GeminiResponse = {
   }>;
 };
 
+type ChatHistoryItem = {
+  role: string;
+  content: string;
+};
+
+type InlineImagePayload = {
+  data: string;
+  mimeType: string;
+};
+
+const extractCandidateText = (candidate?: any) => {
+  if (!candidate?.content?.parts?.length) {
+    return '';
+  }
+  return candidate.content.parts
+    .map((part: { text?: string }) => part?.text || '')
+    .join('')
+    .trim();
+};
+
+const buildGeminiContents = (history: ChatHistoryItem[], image?: InlineImagePayload) => {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history.map((item, index) => {
+    const role = item.role === 'assistant' ? 'model' : 'user';
+    const isLast = index === history.length - 1;
+    const parts: Array<{ text?: string; inlineData?: { data: string; mimeType: string } }> = [];
+
+    if (item.content) {
+      parts.push({ text: item.content });
+    }
+
+    if (image && isLast && role === 'user') {
+      parts.push({
+        inlineData: {
+          data: image.data,
+          mimeType: image.mimeType,
+        },
+      });
+    }
+
+    if (!parts.length) {
+      parts.push({ text: 'Kullanıcı bir görsel paylaştı.' });
+    }
+
+    return { role, parts };
+  });
+};
+
 export const analyzeMealImage = async (
   imageBase64: string,
   mimeType: string,
@@ -114,17 +165,18 @@ export const analyzeMealImage = async (
   return JSON.parse(cleaned);
 };
 
-export const generateCoachResponse = async (context: string, history: Array<{ role: string; content: string }>) => {
+export const generateCoachResponse = async (
+  context: string,
+  history: Array<{ role: string; content: string }>,
+  image?: InlineImagePayload
+) => {
   const apiKey = getApiKey();
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
   logger.info({ historyCount: history.length }, 'Gemini coach response request started');
-  const contents = history.map(item => ({
-    role: item.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: item.content }]
-  }));
+  const contents = buildGeminiContents(history, image);
 
   const requestBody = {
     systemInstruction: {
@@ -145,6 +197,103 @@ export const generateCoachResponse = async (context: string, history: Array<{ ro
   }
 
   return text.trim();
+};
+
+export const streamCoachResponse = async (params: {
+  context: string;
+  history: Array<{ role: string; content: string }>;
+  image?: InlineImagePayload;
+  onDelta: (delta: string, fullText: string) => void;
+  onEvent?: (payload: any) => void;
+}) => {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured');
+  }
+
+  const { context, history, image, onDelta, onEvent } = params;
+  logger.info({ historyCount: history.length }, 'Gemini coach streaming request started');
+
+  const contents = buildGeminiContents(history, image);
+  const requestBody = {
+    systemInstruction: {
+      parts: [{ text: `${BIG_SYSTEM_PROMPT}\n\nCONTEXT:\n${context}` }],
+    },
+    contents,
+  };
+
+  const response = await axios.post(
+    `${GEMINI_BASE_URL}/models/${DEFAULT_GEMINI_CHAT_MODEL}:streamGenerateContent?key=${apiKey}&alt=sse`,
+    requestBody,
+    {
+      responseType: 'stream',
+      headers: {
+        Accept: 'text/event-stream',
+      },
+    }
+  );
+
+  return new Promise<string>((resolve, reject) => {
+    let buffer = '';
+    let fullText = '';
+    const stream = response.data as NodeJS.ReadableStream;
+
+    const handleLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      let payloadText = trimmed;
+      if (payloadText.startsWith('data:')) {
+        payloadText = payloadText.replace(/^data:\s*/, '');
+      }
+
+      if (!payloadText || payloadText === '[DONE]') {
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(payloadText);
+        onEvent?.(parsed);
+        const candidate = parsed?.candidates?.[0];
+        const candidateText = extractCandidateText(candidate);
+        if (!candidateText) {
+          return;
+        }
+
+        let delta = candidateText;
+        if (fullText && candidateText.startsWith(fullText)) {
+          delta = candidateText.slice(fullText.length);
+        }
+
+        if (delta) {
+          fullText += delta;
+          onDelta(delta, fullText);
+        }
+      } catch (error) {
+        logger.debug({ line: trimmed, err: error }, 'Failed to parse Gemini stream payload');
+      }
+    };
+
+    stream.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString('utf8');
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      lines.forEach(handleLine);
+    });
+
+    stream.on('end', () => {
+      if (buffer.trim().length > 0) {
+        handleLine(buffer);
+      }
+      resolve(fullText.trim());
+    });
+
+    stream.on('error', (error: any) => {
+      reject(error);
+    });
+  });
 };
 
 export const generateSummary = async (summaryInput: string) => {

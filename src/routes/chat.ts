@@ -3,7 +3,7 @@ import { authenticateToken, AuthRequest } from '../middleware/authMiddleware';
 import { ensureUserInfo } from '../server/fitcal/services/userInfoService';
 import { formatDateInTimeZone } from '../server/fitcal/utils/timezone';
 import { getOrCreateDailyStats } from '../server/fitcal/services/progressService';
-import { handleChatMessage, listChatMessages, listChatSessions } from '../server/fitcal/services/chatService';
+import { handleChatMessage, handleChatMessageStream, listChatMessages, listChatSessions } from '../server/fitcal/services/chatService';
 import { logger } from '../utils/logger';
 import { attachRouteLogger } from '../utils/routeLogger';
 
@@ -19,10 +19,18 @@ export const createChatRouter = () => {
         return;
       }
 
-      const { sessionId, message, context } = req.body || {};
+      const { sessionId, message, context, stream, image } = req.body || {};
       if (!message) {
         res.status(400).json({ error: 'invalid_request', message: 'message is required' });
         return;
+      }
+
+      if (image) {
+        const isImagePayloadValid = typeof image?.data === 'string' && typeof image?.mimeType === 'string';
+        if (!isImagePayloadValid || !image.mimeType.startsWith('image/')) {
+          res.status(400).json({ error: 'invalid_request', message: 'Only image attachments are supported' });
+          return;
+        }
       }
 
       const userInfo = await ensureUserInfo(authReq.user.id, {
@@ -32,12 +40,35 @@ export const createChatRouter = () => {
       const today = formatDateInTimeZone(new Date(), userInfo.timezone || 'UTC');
       const dailyStats = await getOrCreateDailyStats(userInfo, today);
 
+      const imagePayload = image ? { data: image.data, mimeType: image.mimeType } : null;
+
+      if (stream) {
+        const streamSetup = await handleChatMessageStream({
+          user: userInfo,
+          sessionId,
+          message,
+          dailyStats,
+          contextTags: context || null,
+          imagePayload
+        });
+        res.json({
+          streaming: true,
+          messageId: streamSetup.messageId,
+          sessionId: streamSetup.sessionId
+        });
+        void streamSetup.run().catch((error) => {
+          logger.error({ err: error, sessionId: streamSetup.sessionId }, 'Chat stream failed');
+        });
+        return;
+      }
+
       const result = await handleChatMessage({
         user: userInfo,
         sessionId,
         message,
         dailyStats,
-        contextTags: context || null
+        contextTags: context || null,
+        imagePayload
       });
 
       res.json(result);
